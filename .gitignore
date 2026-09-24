@@ -17,6 +17,13 @@ __pycache__/
 # Notebook checkpoints
 .ipynb_checkpoints/
 
+# Local model artifacts / build staging — real artifacts live in S3
+# (s3://<bucket>/models/...); only code and reports are committed.
+*.tar.gz
+*.joblib
+*.xgb
+models/*/_bundle_staging/
+
 # OS / editor
 .DS_Store
 .idea/

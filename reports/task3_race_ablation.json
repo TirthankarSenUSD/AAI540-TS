@@ -1,0 +1,112 @@
+{
+  "with_race": {
+    "test_pr_auc": 0.1779412260718162,
+    "selection_rate_by_race": {
+      "race": {
+        "AfricanAmerican": {
+          "n": 1804,
+          "base_rate": 0.10920177383592018,
+          "selection_rate": 0.10144124168514412,
+          "precision": 0.15846994535519127,
+          "recall": 0.14720812182741116,
+          "brier_score": 0.10032903175495887
+        },
+        "Asian": {
+          "n": 64,
+          "base_rate": 0.0625,
+          "selection_rate": 0.078125,
+          "precision": 0.4,
+          "recall": 0.5,
+          "brier_score": 0.04905601694889
+        },
+        "Caucasian": {
+          "n": 7482,
+          "base_rate": 0.11681368618016573,
+          "selection_rate": 0.10264635124298316,
+          "precision": 0.21484375,
+          "recall": 0.18878718535469108,
+          "brier_score": 0.10390348640454547
+        },
+        "Hispanic": {
+          "n": 196,
+          "base_rate": 0.05612244897959184,
+          "selection_rate": 0.061224489795918366,
+          "precision": 0.16666666666666666,
+          "recall": 0.18181818181818182,
+          "brier_score": 0.052503121377565014
+        },
+        "Missing": {
+          "n": 265,
+          "base_rate": 0.10943396226415095,
+          "selection_rate": 0.04150943396226415,
+          "precision": 0.2727272727272727,
+          "recall": 0.10344827586206896,
+          "brier_score": 0.0964223749846083
+        },
+        "Other": {
+          "n": 149,
+          "base_rate": 0.16778523489932887,
+          "selection_rate": 0.11409395973154363,
+          "precision": 0.35294117647058826,
+          "recall": 0.24,
+          "brier_score": 0.1414121831956992
+        }
+      }
+    }
+  },
+  "without_race": {
+    "test_pr_auc": 0.18060992860974756,
+    "selection_rate_by_race": {
+      "race": {
+        "AfricanAmerican": {
+          "n": 1804,
+          "base_rate": 0.10920177383592018,
+          "selection_rate": 0.11197339246119734,
+          "precision": 0.16336633663366337,
+          "recall": 0.16751269035532995,
+          "brier_score": 0.1015447746492723
+        },
+        "Asian": {
+          "n": 64,
+          "base_rate": 0.0625,
+          "selection_rate": 0.09375,
+          "precision": 0.5,
+          "recall": 0.75,
+          "brier_score": 0.04830672530506835
+        },
+        "Caucasian": {
+          "n": 7482,
+          "base_rate": 0.11681368618016573,
+          "selection_rate": 0.09957230686982091,
+          "precision": 0.22550335570469798,
+          "recall": 0.19221967963386727,
+          "brier_score": 0.10287316107590776
+        },
+        "Hispanic": {
+          "n": 196,
+          "base_rate": 0.05612244897959184,
+          "selection_rate": 0.05102040816326531,
+          "precision": 0.2,
+          "recall": 0.18181818181818182,
+          "brier_score": 0.05355120537853359
+        },
+        "Missing": {
+          "n": 265,
+          "base_rate": 0.10943396226415095,
+          "selection_rate": 0.06415094339622641,
+          "precision": 0.17647058823529413,
+          "recall": 0.10344827586206896,
+          "brier_score": 0.10089636118989323
+        },
+        "Other": {
+          "n": 149,
+          "base_rate": 0.16778523489932887,
+          "selection_rate": 0.10738255033557047,
+          "precision": 0.3125,
+          "recall": 0.2,
+          "brier_score": 0.13766026888946278
+        }
+      }
+    }
+  }
+}

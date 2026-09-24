@@ -1,0 +1,9 @@
+# Model comparison — test split
+
+| Model                           |   PR-AUC |   ROC-AUC |   Precision@10% |   Recall@thr |   Brier |
+|:--------------------------------|---------:|----------:|----------------:|-------------:|--------:|
+| Majority class                  |   0.1145 |    0.5    |          0.1195 |       1      |  0.1014 |
+| Heuristic (number_inpatient>=1) |   0.1473 |    0.6042 |          0.1637 |       0.5175 |  0.329  |
+| Logistic regression             |   0.2154 |    0.6433 |          0.246  |       0.2123 |  0.0979 |
+| XGBoost (uncalibrated)          |   0.2363 |    0.681  |          0.2831 |       0.2693 |  0.1411 |
+| XGBoost (calibrated)            |   0.2363 |    0.681  |          0.2831 |       0.2693 |  0.0981 |

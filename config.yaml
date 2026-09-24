@@ -6,6 +6,8 @@ prefixes:
   processed: processed/
   features: features/
   athena_results: athena-results/
+  models: models/
+  predictions: predictions/
 glue_database: diabetes130
 feature_group: diabetes130-encounter-features
 splits:

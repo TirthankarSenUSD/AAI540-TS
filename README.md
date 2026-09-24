@@ -1,12 +1,12 @@
 # Diabetes 130 — 30-day readmission
 
-Data layer for an ML system that predicts whether a hospital encounter will
-be followed by a readmission within 30 days, built on the UCI
+An ML system that predicts whether a hospital encounter will be followed by
+a readmission within 30 days, built on the UCI
 ["Diabetes 130-US hospitals" dataset](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008).
-This covers ingestion through to a split, Feature Store-backed dataset.
-Model training is out of scope for this stage — see
-[`Week 3 Checklist.md`](Week%203%20Checklist.md) for the full implementation
-brief this repo follows.
+[`Week 3 Checklist.md`](Week%203%20Checklist.md) covers ingestion through a
+split, Feature Store-backed dataset. [`Week 4 Checklist.md`](Week%204%20Checklist.md)
+covers benchmark + real model training, calibration, evaluation, and Batch
+Transform deployment.
 
 ## Decisions already made
 
@@ -20,7 +20,13 @@ brief this repo follows.
 4. **Expired and hospice discharges are removed** before anything else —
    see the note in [`src/transform.py`](src/transform.py) on the corrected
    discharge-disposition ID set (`{11, 13, 14, 19, 20, 21}`).
-5. **Expected model performance is ~0.67 ROC-AUC.**
+5. **Expected model performance is ~0.67 ROC-AUC.** A materially higher
+   number on the real (HPO-tuned) model means leakage, not success.
+6. **No resampling, no deep learning, accuracy is not a metric.** PR-AUC
+   and precision@k are primary; boosted trees, not neural nets, per prior
+   published work on this exact dataset.
+7. **The production split is untouched** — reserved for monitoring/drift
+   work in a later module.
 
 ## Repo layout
 
@@ -30,20 +36,30 @@ brief this repo follows.
 ├── requirements.txt
 ├── src/
 │   ├── config.py             # loads config.yaml
-│   ├── ingest.py              # Task 1 — raw CSVs -> S3 datalake + provenance manifest
-│   ├── catalog.py             # Task 2 — Glue database + Athena tables over raw data
-│   ├── transform.py           # Task 4 — cleaning + feature engineering (pure functions, unit-tested)
-│   ├── feature_store.py       # Task 5 — SageMaker Feature Store ingestion (offline store)
-│   └── split.py                # Task 6 — four-way patient-level split
+│   ├── ingest.py              # Week 3 Task 1 — raw CSVs -> S3 datalake + provenance manifest
+│   ├── catalog.py             # Week 3 Task 2 — Glue database + Athena tables over raw data
+│   ├── transform.py           # Week 3 Task 4 — cleaning + feature engineering (pure functions, unit-tested)
+│   ├── feature_store.py       # Week 3 Task 5 — SageMaker Feature Store ingestion (offline store)
+│   ├── split.py                # Week 3 Task 6 — four-way patient-level split
+│   ├── model_data.py          # shared split-loading + feature-exclusion helper
+│   ├── benchmark.py            # Week 4 Task 1 — majority-class floor + heuristic/logistic benchmark
+│   ├── calibrate.py            # Week 4 Task 2 — Platt scaling on the validation split
+│   ├── evaluate.py             # Week 4 Task 3 — metrics, precision@k, subgroup fairness, comparison table
+│   ├── deploy.py               # Week 4 Task 4 — artifact bundling, Model Registry, Batch Transform, smoke test
+│   ├── hpo.py                  # Week 4 Task 2 — Bayesian HPO launcher (boto3)
+│   └── aws_jobs.py             # shared boto3 helpers for training/tuning job launches
+├── models/
+│   ├── benchmark_sklearn/train.py   # SageMaker SKLearn script-mode entry point (Task 1b)
+│   └── xgboost/                      # SageMaker XGBoost script-mode entry point (Task 2)
+│       ├── train.py, preprocess.py, inference.py, calibration.py
 ├── notebooks/
-│   └── 01_eda.ipynb           # Task 3 — EDA, read entirely through Athena
+│   └── 01_eda.ipynb           # Week 3 Task 3 — EDA, read entirely through Athena
 ├── tests/
-│   └── test_transform.py      # unit tests for transform.py and split.py, no AWS credentials required
+│   └── test_transform.py      # unit tests, no AWS credentials required
 ├── reports/
-│   ├── figures/                # every figure from the EDA notebook, saved to disk
-│   ├── task2_validation.json
-│   ├── task6_split.json
-│   └── task5_feature_store.json
+│   ├── figures/                # every figure from the EDA notebook + evaluation, saved to disk
+│   ├── model_comparison.{md,csv}    # the Week 4 deliverable comparison table
+│   └── task*.json              # validation output from every task, both weeks
 ├── docs/
 │   └── reference_smart_grid_structure.md   # folder-structure reference from a prior, unrelated project
 └── Datasets/                  # local staging for the 3 raw source files (gitignored — see below)
@@ -85,10 +101,26 @@ jupyter nbconvert --to notebook --execute --inplace notebooks/01_eda.ipynb  # Ta
 python -m pytest tests/      # Task 4 tests (transform.py is exercised directly by feature_store.py / split.py below)
 python src/feature_store.py  # Task 5 — Feature Store ingestion (offline store)
 python src/split.py          # Task 6 — four-way patient-level split
+
+# Week 4 — model, evaluation, deployment
+python src/benchmark.py               # Task 1a/1b — local benchmark metrics (see also launch_benchmark_training_job)
+python src/hpo.py                     # Task 2 — launches real HPO (multi-job, costs real compute — run deliberately)
+python src/calibrate.py --model-dir <best-job-artifact-dir>   # Task 2 — Platt scaling
+python src/evaluate.py --xgboost-model-dir <dir-with-model+calibrator>  # Task 3 — full evaluation + comparison table
+python src/deploy.py                  # Task 4 — bundle, register, Batch Transform (see module for individual steps)
 ```
 
 Each script writes its validation output to `reports/` so results are
-reviewable without re-running anything.
+reviewable without re-running anything. Every Week 4 step above has been
+run for real against AWS: a 25-trial Bayesian HPO job, a final training
+run with SageMaker Debugger attached, real calibration, real Model
+Registry entries, and a real Batch Transform job with a passing smoke
+test (including the training/serving-skew regression check). Along the
+way this surfaced five real bugs/API constraints that only showed up
+under actual SageMaker execution — see `RESULTS.md` for the full list,
+including one that genuinely broke a deployed Batch Transform job
+(a calibrator pickle incompatible with the serving container's older
+sklearn) before being caught and fixed.
 
 ## Results
 
