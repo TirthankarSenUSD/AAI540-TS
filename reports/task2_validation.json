@@ -1,0 +1,22 @@
+{
+  "count_raw_encounters": {
+    "actual": 101766,
+    "expected": 101766
+  },
+  "count_distinct_patients": {
+    "actual": 71518,
+    "expected": 71518
+  },
+  "readmitted_breakdown": {
+    "actual": {
+      "NO": 54864,
+      ">30": 35545,
+      "<30": 11357
+    },
+    "expected": {
+      "<30": 11357,
+      ">30": 35545,
+      "NO": 54864
+    }
+  }
+}

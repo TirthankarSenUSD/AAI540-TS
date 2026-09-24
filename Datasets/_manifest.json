@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-09-24T03:54:20.400145+00:00",
+  "files": [
+    {
+      "filename": "diabetic_data.csv",
+      "source": "encounters",
+      "s3_key": "raw/encounters/diabetic_data.csv",
+      "sha256": "0689e7ec031237dc63031b938805c48377748761a3b26acab621567afa24df97",
+      "row_count": 101766,
+      "ingested_at": "2026-09-24T03:54:20.308723+00:00"
+    },
+    {
+      "filename": "IDS_mapping.csv",
+      "source": "id_mapping",
+      "s3_key": "raw/id_mapping/IDS_mapping.csv",
+      "sha256": "f1bb82b471cb34649352597572c9b1fb00bd27f77b9f5a22a03dc3eb1039749e",
+      "row_count": 67,
+      "ingested_at": "2026-09-24T03:54:20.344732+00:00"
+    },
+    {
+      "filename": "icd9dx2015.csv",
+      "source": "icd9",
+      "s3_key": "raw/icd9/icd9dx2015.csv",
+      "sha256": "b38ff17e567d07c4998ba90e7b571ed8d929e481d952d0d28afb58804f76fd24",
+      "row_count": 14567,
+      "ingested_at": "2026-09-24T03:54:20.400116+00:00"
+    }
+  ]
+}

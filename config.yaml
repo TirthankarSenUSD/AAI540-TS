@@ -1,0 +1,16 @@
+project: diabetes130-readmission
+region: us-east-1
+bucket: 771119245550-diabetes130       # single bucket, prefixes below
+prefixes:
+  raw: raw/
+  processed: processed/
+  features: features/
+  athena_results: athena-results/
+glue_database: diabetes130
+feature_group: diabetes130-encounter-features
+splits:
+  train: 0.40
+  validation: 0.10
+  test: 0.10
+  production: 0.40
+seed: 42

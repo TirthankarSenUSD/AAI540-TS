@@ -1,0 +1,31 @@
+{
+  "full_dataset": {
+    "n": 99343,
+    "positives": 11314
+  },
+  "split_proportions": {
+    "train": 0.39889071197769344,
+    "validation": 0.10025869965674482,
+    "test": 0.10025869965674482,
+    "production": 0.4005918887088169
+  },
+  "split_counts": {
+    "train": 39627,
+    "validation": 9960,
+    "test": 9960,
+    "production": 39796
+  },
+  "prevalence_by_split": {
+    "production": 0.11636847924414515,
+    "test": 0.1144578313253012,
+    "train": 0.11237287707875943,
+    "validation": 0.10943775100401607
+  },
+  "modelling_portion": {
+    "n": 59547,
+    "positives": 6683,
+    "negatives": 52864,
+    "below_10k_floor": true,
+    "note": "Expected: the 60% modelling subset (train+val+test) legitimately falls below the 10,000-per-class floor even though the full dataset satisfies it. This is a reported statistic, not a gate \u2014 see the brief's 'Read this carefully' note on Task 6. Flagged for the team to consider whether the 40% production reservation should be revisited."
+  }
+}

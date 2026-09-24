@@ -1,0 +1,23 @@
+# Raw source data — lives in S3 (s3://<bucket>/raw/), not in git.
+# Only the checksum manifest is committed.
+Datasets/*.csv
+!Datasets/_manifest.json
+
+# Reference project kept locally for structural comparison only — see
+# docs/reference_smart_grid_structure.md. Not part of this project.
+Smart_Grid-main/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+*.log
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

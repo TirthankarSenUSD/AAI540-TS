@@ -1,0 +1,7 @@
+{
+  "feature_group": "diabetes130-encounter-features",
+  "records_ingested": 99343,
+  "offline_store_row_count": 99343,
+  "offline_database": "sagemaker_featurestore",
+  "offline_table": "diabetes130_encounter_features_1790223798"
+}
