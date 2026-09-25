@@ -8,7 +8,8 @@ split, Feature Store-backed dataset. [`Week 4 Checklist.md`](Week%204%20Checklis
 covers benchmark + real model training, calibration, evaluation, and Batch
 Transform deployment. A monitoring module (no separate checklist file) adds
 model/data/infrastructure monitors, a CloudWatch dashboard, and model/data
-reports on top of that deployment.
+reports on top of that deployment, and a CI/CD module adds a real,
+orchestrated SageMaker Pipeline.
 
 ## Decisions already made
 
@@ -56,11 +57,12 @@ reports on top of that deployment.
 │   ├── monitor_infrastructure.py # infra monitor — SNS + EventBridge failure alerting, CloudWatch alarms
 │   ├── monitor_dashboard.py    # CloudWatch dashboard — pushes custom metrics + publishes the dashboard
 │   ├── clarify_reports.py      # NOT functional — SageMaker Clarify is unavailable in this account; kept as a record
-│   └── fairness_report.py      # launches the custom bias/explainability report below as a real Processing Job
+│   ├── fairness_report.py      # launches the custom bias/explainability report below as a real Processing Job
+│   └── pipeline.py             # CI/CD DAG — a real SageMaker Pipeline (Train -> Evaluate -> Register)
 ├── models/
 │   ├── benchmark_sklearn/train.py   # SageMaker SKLearn script-mode entry point (Task 1b)
 │   ├── xgboost/                      # SageMaker XGBoost script-mode entry point (Task 2)
-│   │   ├── train.py, preprocess.py, inference.py, calibration.py
+│   │   ├── train.py, preprocess.py, inference.py, calibration.py, evaluate_step.py
 │   └── fairness_report/generate_report.py   # bias + SHAP feature-importance report (Clarify's replacement)
 ├── notebooks/
 │   └── 01_eda.ipynb           # Week 3 Task 3 — EDA, read entirely through Athena
@@ -153,6 +155,32 @@ AWS account (`maintenance mode`) — `src/fairness_report.py` builds the
 same substance (bias metrics + SHAP) as a real SageMaker Processing Job
 instead. Full writeup, including six more real bugs found only by running
 this against AWS, in `RESULTS.md`'s monitoring section.
+
+## CI/CD pipeline
+
+A real SageMaker Pipeline (`diabetes130-cicd-pipeline`), Train → Evaluate
+→ Register, giving the project an actual orchestrated DAG rather than
+independent manually-run scripts. Registers into its own
+`diabetes130-pipeline-models` group — separate from the real, approved
+production model in `diabetes130-xgboost-models`.
+
+```bash
+# create/update the pipeline definition (threshold baked in at build time)
+python -c "from config import load_config; from pipeline import create_or_update_pipeline; create_or_update_pipeline(load_config(), auc_threshold=0.6)"
+
+# start a run
+python -c "from config import load_config; from pipeline import start_execution; print(start_execution(load_config(), execution_name='my-run'))"
+```
+
+Run twice against AWS to capture both demo states: a normal threshold
+(0.6) reaches `Register` with all three steps green; an artificially
+strict one (0.75, above the model's real ~0.68 AUC) makes the `Evaluate`
+step itself fail its internal quality gate, so `Register` never runs and
+the execution shows `Failed`. View the DAG (and which nodes went green vs.
+red for any past execution) in SageMaker Studio → **Pipelines** →
+`diabetes130-cicd-pipeline` → **Executions**. Two more real bugs found
+building this (a copy-pasted wrong tarball filename, an undersized
+`ClientRequestToken`) — see `RESULTS.md`.
 
 ## Results
 

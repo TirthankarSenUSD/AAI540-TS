@@ -585,3 +585,115 @@ Six real bugs found and fixed this module (2 in the data/model quality
 monitors, 3 in the custom fairness report's Processing Job packaging, 1
 account-level platform restriction routed around) — none catchable
 without actually running against AWS.
+
+---
+
+# CI/CD pipeline (`src/pipeline.py`)
+
+A real SageMaker Pipeline — `diabetes130-cicd-pipeline` — giving this
+project an actual orchestrated DAG, run twice against AWS to capture both
+a successful and a failed execution state.
+
+## What it is
+
+Three linear steps: **Train → Evaluate → Register**. Reuses the best
+hyperparameters found by Week 4's real 25-trial HPO run (fixed, not
+re-tuned — a pipeline meant to be re-run on demand shouldn't redo a
+25-trial search every time) and the same CSV-exported train/validation
+channels from that run.
+
+This is a **separate artifact** from the hand-calibrated, human-approved
+production model deployed in Week 4 — it registers into its own group,
+`diabetes130-pipeline-models`, never the production
+`diabetes130-xgboost-models` group. The point is demonstrating pipeline
+orchestration, not replacing that model.
+
+The quality gate (`AUC >= threshold`) is enforced **inside the Evaluate
+step's own script**, which exits non-zero on a miss, rather than via a
+native Pipelines `Condition` step. A hand-written
+`{"Get": "Steps.X.PropertyFiles.Y.z"}` expression hit `Unknown property
+reference` against the real service; rather than keep guessing at
+undocumented-to-us exact JSON syntax, this achieves the identical
+demonstrable outcome (reaches `Register` on a pass, stops with a failed
+step on a miss) through a mechanism — a step's own exit code — with no
+such ambiguity. The threshold itself is baked into the pipeline
+definition at build time (a `{"Get": "Parameters.X"}` reference inside a
+Processing step's `Environment` was also rejected — `Environment` values
+must be plain strings, even though the identical mechanism is accepted
+for `ModelDataUrl` a few lines below in the same definition), so
+producing the two demo states means updating the pipeline definition with
+a different threshold before each run via `create_or_update_pipeline(cfg,
+auc_threshold=...)`, not passing a runtime execution parameter.
+
+## Real results — both demo states captured
+
+**Successful execution** (`success-demo-2`,
+`.../execution/88o3n64pvacr`, threshold 0.6): all three steps
+`Succeeded`. Evaluate step's real output —
+
+```json
+{"auc": 0.6809714763098222, "pr_auc": 0.23625746066726622, "n_rows": 9960}
+```
+
+— matches Task 3's test-set numbers for the production model exactly
+(0.6810 / 0.2363), confirming the pipeline-trained model is the same real
+model, not a stand-in. Registered as `diabetes130-pipeline-models` v1,
+`PendingManualApproval`.
+
+**Failed execution** (`failure-demo`, `.../execution/nowvgyq8pxy6`,
+threshold artificially set to 0.75, above the model's real ~0.68 AUC):
+`TrainXGBoost` succeeded, `EvaluateModel` failed with exit code 1 and the
+log line `QUALITY GATE FAILED: auc 0.6810 < threshold 0.7500`,
+`RegisterModel` never started. Pipeline execution status: `Failed`. The
+pipeline was then reset to the achievable threshold (0.6) as its resting
+state.
+
+## Two more real bugs, found only by actually running this
+
+1. **Wrong tarball filename.** The Evaluate step's container command
+   extracted `code.tar.gz` — copy-pasted from `src/fairness_report.py`'s
+   bundler, which names its archive that. `aws_jobs.upload_source_dir`
+   (used here instead) names it `sourcedir.tar.gz`. First execution failed
+   immediately: `tar (child): ... code.tar.gz: Cannot open: No such file
+   or directory`. Fixed by matching the actual filename.
+2. **`ClientRequestToken` too short.** `create_pipeline` requires it to be
+   at least 32 characters; `str(time.time())` (~18 chars) was rejected
+   with `ParamValidationError`. Fixed with two concatenated UUID4 hexes.
+
+## How to run it yourself
+
+```bash
+# One-time (or after changing the pipeline definition / hyperparameters):
+python -c "
+from config import load_config
+from pipeline import create_or_update_pipeline
+create_or_update_pipeline(load_config(), auc_threshold=0.6)  # 0.6 = achievable; use e.g. 0.75 to force a failed demo
+"
+
+# Start a run:
+python -c "
+from config import load_config
+from pipeline import start_execution
+print(start_execution(load_config(), execution_name='my-run'))
+"
+```
+
+Or from the AWS CLI directly, once the pipeline exists:
+```bash
+aws sagemaker start-pipeline-execution \
+  --pipeline-name diabetes130-cicd-pipeline \
+  --pipeline-execution-display-name my-run \
+  --region us-east-1
+```
+
+**To see the DAG** (both the graph and, for any past execution, which
+nodes went green vs. red): SageMaker Studio → **Pipelines** →
+`diabetes130-cicd-pipeline` → **Executions** tab → pick an execution to
+see its graph colored by step status. Console link:
+`https://us-east-1.console.aws.amazon.com/sagemaker/home?region=us-east-1#/studio` (navigate to Pipelines from the Studio home, under your domain/user profile — direct deep-links to a specific pipeline execution's graph view require an active Studio session URL, which is user/session-specific).
+
+Each run costs real training + processing compute (roughly 5-10 minutes
+end to end) and registers a new model package version in
+`diabetes130-pipeline-models` on every successful pass — worth pruning
+old pipeline-demo versions occasionally, distinct from the real production
+model in `diabetes130-xgboost-models`.
