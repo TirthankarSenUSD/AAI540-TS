@@ -8,6 +8,7 @@ prefixes:
   athena_results: athena-results/
   models: models/
   predictions: predictions/
+  monitoring: monitoring/
 glue_database: diabetes130
 feature_group: diabetes130-encounter-features
 splits:

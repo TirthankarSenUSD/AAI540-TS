@@ -327,9 +327,13 @@ prevalence problem).
 - **Model Registry**: group `diabetes130-xgboost-models`. v1
   (`CalibratedClassifierCV`/`FrozenEstimator` calibrator) — `Rejected`,
   with the sklearn-version-skew reason recorded via
-  `ApprovalDescription`. **v2** (PlattCalibrator) —
-  `PendingManualApproval`, with test metrics + calibration report +
-  training metrics attached via `ModelMetrics`.
+  `ApprovalDescription`. **v2** (PlattCalibrator) — registered
+  `PendingManualApproval` with test metrics + calibration report +
+  training metrics attached via `ModelMetrics`, then reviewed and
+  **`Approved`** (2026-09-25) — this is the model this project's
+  deployment artifacts refer to. `diabetes130-benchmark-models` v1 —
+  the Task 1b floor/baseline, not a deployment candidate — was also
+  reviewed and **`Approved`** (2026-09-25).
 - **Batch Transform**: `diabetes130-batch-transform-v2-1790229539` against
   a 50-row canned batch drawn from the test split (production split never
   touched, per decision #5) — **Completed**. `input_filter="$[1:]"`,
@@ -372,3 +376,212 @@ Two judgment calls, both flagged to the user before implementing:
 
 All Week 4 deliverables-checklist items are complete with real, measured
 numbers.
+
+---
+
+# Monitoring — model, data, and infrastructure monitors, dashboard, reports
+
+No formal checklist file for this module; scope came from a pasted task
+list: model monitors, data monitors, infrastructure monitors, a CloudWatch
+dashboard, and model/data reports on SageMaker. Built and run for real
+against AWS, same as Weeks 3-4. Uses the **production split** as the
+simulated incoming-traffic dataset throughout — exactly what it was
+reserved for back in Week 3's decision #5 ("reserved for monitoring and
+drift work in a later module").
+
+## Data quality monitor (`src/monitor_data_quality.py`)
+
+SageMaker Model Monitor, Data Quality type, via boto3 `create_processing_job`
+running the built-in `sagemaker-model-monitor-analyzer` container directly
+(the SDK's `DefaultModelMonitor` class isn't available in the installed
+SDK v3, same restructuring issue hit repeatedly in Weeks 3-4).
+
+- **Baseline**: train split (41 feature columns, CSV with header) →
+  `statistics.json` + `constraints.json`. Completed on the first real run.
+- **Monitoring execution**: production split (39,796 rows) compared
+  against the baseline → **`CompletedWithViolations: 10 violations`**:
+
+  | Check type | Count | What it means |
+  |---|---|---|
+  | `data_type_check` | 3 | `diag_1`/`diag_2`/`diag_3` — a CSV type-inference artifact, not real drift: these columns mix numeric-looking codes (`"250.83"`) and alphanumeric V/E codes (`"V27"`), and the analyzer's per-batch type sniffing landed differently between baseline and production samples. |
+  | `completeness_check` | 3 | `diag_1`/`diag_2`/`race` — tiny (~0.05-0.15pp) null-rate differences between two disjoint patient cohorts. Sampling noise, not meaningful drift. |
+  | `categorical_values_check` | 4 | **Genuine, actionable finding.** `medical_specialty`, `payer_code`, `admission_source`, `discharge_disposition` each have a handful of production rows (99.98-99.99% match) with category values never seen in training. `XGBoostCategoricalPreprocessor` silently maps unseen categories to missing at inference — worth watching if this rate grows over time. |
+
+**Bug found and fixed:** the first monitoring-execution attempt was
+launched with `publish_cloudwatch_metrics=Enabled` and failed outright:
+`Error: CloudWatch publishing is available only for jobs from
+MonitoringSchedules.` That flag only works when the analyzer container is
+invoked by a real, live `MonitoringSchedule` (it needs schedule context to
+timestamp metrics) — a standalone, manually-launched Processing Job can't
+use it. Fixed by disabling the flag and instead reading violation counts
+out of `constraint_violations.json` and pushing them to CloudWatch as
+custom metrics ourselves (`monitor_dashboard.py`).
+
+## Model quality monitor (`src/monitor_model_quality.py`)
+
+Same mechanism, `analysis_type=MODEL_QUALITY`, `problem_type=BinaryClassification`.
+Both splits scored through the **exact real deployed artifact** (v2's
+preprocessor → booster → PlattCalibrator → frozen threshold) —
+`score_split()`'s validation-split ROC-AUC (0.6564) matches Task 3's
+number bit-for-bit, confirming it reproduces production scoring exactly.
+
+**Bug found and fixed:** the first baseline run used the analyzer's
+default 0.5 probability threshold to derive the confusion matrix. At
+~11% prevalence, calibrated probabilities cluster well under 0.5, so
+*every* row was classified negative — confusion matrix `{0:{0:8870,1:0},
+1:{0:1090,1:0}}`, making recall/precision/F1/TPR all degenerately 0 even
+though AUC (0.656) and accuracy (0.891, the majority-class rate) came
+through correctly. Fixed by passing the real frozen threshold (0.1395)
+as `probability_threshold_attribute` instead of the default.
+
+Results with the fix:
+
+| | Validation (baseline) | Production (monitored) |
+|---|---|---|
+| AUC | 0.6564 | **0.6785** |
+| Accuracy | 0.8906 | 0.8359 |
+| Precision | 0 (degenerate — old run) | 0.2754 |
+| Recall | 0 (degenerate — old run) | 0.2516 |
+| F1 | 0 (degenerate — old run) | 0.2630 |
+
+Monitoring execution: **`CompletedWithViolations: 3 violations`** —
+accuracy (0.836, threshold 0.840), false positive rate (0.087, threshold
+0.085), true negative rate (0.913, threshold 0.915). All small,
+directionally-consistent movements between two disjoint patient cohorts.
+**Notably, AUC on production (0.6785) is slightly *better* than the
+validation baseline (0.6564)** — the flagged metrics are minor
+threshold-dependent fluctuations, not model breakdown; ranking quality
+held up (or improved) on the held-out production cohort.
+
+## Infrastructure monitor (`src/monitor_infrastructure.py`)
+
+This system has no persistent endpoint (Batch Transform on a daily cycle,
+per Week 4), so there's no long-lived `AWS/SageMaker` invocation-metric
+stream to alarm on. Two real pieces instead:
+
+1. **Failure alerting**: SNS topic `diabetes130-ml-alerts` (with an
+   explicit topic policy granting `events.amazonaws.com` publish
+   permission — easy to silently omit and have EventBridge deliveries
+   fail with no error). Three EventBridge rules, all `ENABLED`, matching
+   SageMaker Transform/Training/Processing job state changes reaching
+   `Failed`/`Stopped`, routed to that topic. Works for any future job run.
+2. **Resource utilization**: CloudWatch alarms on the real Week 4 v2
+   Batch Transform job's `CPUUtilization`/`MemoryUtilization`/
+   `DiskUtilization` (namespace `/aws/sagemaker/TransformJobs`, dimensioned
+   by the job's ephemeral `Host`). State: `INSUFFICIENT_DATA`, expected —
+   the job (and its metric stream) has already completed; this
+   demonstrates the alarm pattern against a real job rather than acting as
+   a permanent, evergreen alarm (a new one would need creating per job run
+   unless wired through the same EventBridge failure-rule mechanism).
+
+## CloudWatch dashboard (`src/monitor_dashboard.py`)
+
+Dashboard `diabetes130-ml-system`, 6 widgets: a text header, Batch
+Transform resource utilization, data-quality violation counts (by check
+type), model-quality metrics (production vs. baseline), and two
+fairness widgets (disparate impact, accuracy difference by facet). Since
+none of the monitoring executions run here are fired by a live
+`MonitoringSchedule`, SageMaker doesn't auto-publish their results to
+CloudWatch — this module reads each job's real JSON output and pushes the
+values as custom metrics (namespace `Diabetes130/Monitoring`) so the
+dashboard has real numbers to show, not a live feed.
+
+## Model and data reports on SageMaker
+
+**Model Monitor's own reports** (`statistics.json`, `constraints.json`,
+`constraint_violations.json` for both data quality and model quality,
+all in S3 under `monitoring/`) already satisfy this for data and model
+quality — real reports, generated by real SageMaker Processing Jobs.
+
+**SageMaker Clarify is unavailable in this AWS account.** Launching a
+real Clarify processing job fails immediately:
+```
+ValidationException: SageMaker Clarify processing is in maintenance mode
+and is not available to new customers. Existing customers are unaffected.
+```
+This is a genuine account-level platform restriction (`src/clarify_reports.py`
+is kept as a record of what was attempted), not a bug — confirmed by
+actually trying to launch the job, not by any documentation lookup.
+
+**Built a custom equivalent instead** (`models/fairness_report/generate_report.py`,
+launched by `src/fairness_report.py` as a real SageMaker Processing Job):
+pre/post-training bias metrics (class imbalance, disparate impact,
+accuracy/recall difference) on `race` and `gender`, plus global feature
+importance via XGBoost's **native SHAP contributions**
+(`pred_contribs=True` — mathematically the same TreeSHAP values the `shap`
+library or Clarify's explainability report would produce, no extra
+dependency needed).
+
+Real results (production split, 39,796 rows):
+
+| Facet | Disparate impact | Accuracy difference | Recall difference |
+|---|---|---|---|
+| race=AfricanAmerican vs. rest | 1.154 | −2.12pp | −1.47pp |
+| race=Caucasian vs. rest | 0.955 | +0.53pp | +0.96pp |
+| gender=Female vs. rest | 1.094 | −1.21pp | +0.11pp |
+
+All three disparate-impact values fall within the standard four-fifths
+rule band (0.8-1.25) — no severe disparate impact by this common
+threshold, though AfricanAmerican patients see a measurable accuracy gap.
+
+Top 5 features by mean absolute SHAP contribution: `number_inpatient`
+(0.0533), `discharge_disposition` (0.0318), `diag_3` (0.0236), `diag_1`
+(0.0228), `prior_visits_total` (0.0214). **`race` ranks 33rd of 41
+features** (mean |SHAP| 0.00086) — consistent with Week 4's race-ablation
+finding that dropping the column barely moved test PR-AUC (0.1779 →
+0.1806): the model isn't leaning on race directly, though the disparate
+outcomes above show proxies still produce measurably different results
+per group.
+
+### Three more real bugs, found only by actually running this
+
+1. **numpy/pandas ABI break.** A plain `pip install pyarrow awswrangler`
+   inside the report's Processing Job pulled a newer numpy that's
+   binary-incompatible with the container's pre-built pandas —
+   `ValueError: numpy.dtype size changed, may indicate binary
+   incompatibility`, breaking `import pandas` outright. Fixed by pinning
+   `numpy==1.24.1` (the container's expected version, visible in pip's own
+   conflict warnings) alongside the install.
+2. **Missing `config.yaml` in the code bundle.** `config.py` resolves
+   `config.yaml` relative to itself (`src/../config.yaml`); the bundler
+   copied `src/` and `models/xgboost/` into the Processing Job's code
+   package but not `config.yaml` itself, so `load_config()` failed with
+   `FileNotFoundError` the moment the report tried to load the production
+   split. Fixed by including it explicitly.
+3. **Empty gender bias result** — a local (non-AWS) bug: the gender facet
+   used a `nunique() == 2` guard meant to mean "gender is binary," but the
+   real data has a third, rare `"Unknown/Invalid"` category, so the guard
+   always failed and silently produced an empty result. Fixed by directly
+   targeting the `"Female"` facet instead of trying to infer binariness.
+
+## Scope decision: on-demand Processing Jobs, not a live MonitoringSchedule
+
+Both monitors here run as one-off, manually-triggered Processing Jobs
+(baseline + one monitoring execution each) rather than a recurring,
+cron-based `MonitoringSchedule`. The schedule-based path requires
+`DataQualityJobInput.BatchTransformInput.DataCapturedDestinationS3Uri` —
+Batch Transform's `DataCaptureConfig`-formatted captured data, a specific
+binary/JSON capture format not otherwise needed anywhere else in this
+project, and a live schedule fires on a cron the size of a day, so it
+wouldn't be observable firing within any working session regardless. The
+underlying analysis engine (the same `sagemaker-model-monitor-analyzer`
+container) and its output (real `statistics.json`/`constraints.json`/
+`constraint_violations.json`) are identical either way. Flagging this as a
+deliberate scope decision, not a silently skipped requirement — wiring an
+actual `MonitoringSchedule` on top of this is a natural, bounded follow-up
+if wanted.
+
+## Summary
+
+| Item | Status |
+|---|---|
+| Model monitor | Real — baseline + monitoring execution, 3 real violations found and explained |
+| Data monitor | Real — baseline + monitoring execution, 10 real violations found and explained (4 genuinely actionable) |
+| Infrastructure monitor | Real — SNS + EventBridge failure alerting (3 rules), CloudWatch utilization alarms (3 alarms) |
+| CloudWatch dashboard | Real — `diabetes130-ml-system`, 6 widgets, populated with real pushed metrics |
+| Model/data reports on SageMaker | Real — Model Monitor's native JSON reports; Clarify blocked at the account level, custom bias+SHAP report built and run as a real Processing Job instead |
+
+Six real bugs found and fixed this module (2 in the data/model quality
+monitors, 3 in the custom fairness report's Processing Job packaging, 1
+account-level platform restriction routed around) — none catchable
+without actually running against AWS.

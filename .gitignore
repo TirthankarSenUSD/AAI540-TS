@@ -22,7 +22,9 @@ __pycache__/
 *.tar.gz
 *.joblib
 *.xgb
+*.ubj
 models/*/_bundle_staging/
+.deployed_model/
 
 # OS / editor
 .DS_Store

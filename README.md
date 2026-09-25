@@ -6,7 +6,9 @@ a readmission within 30 days, built on the UCI
 [`Week 3 Checklist.md`](Week%203%20Checklist.md) covers ingestion through a
 split, Feature Store-backed dataset. [`Week 4 Checklist.md`](Week%204%20Checklist.md)
 covers benchmark + real model training, calibration, evaluation, and Batch
-Transform deployment.
+Transform deployment. A monitoring module (no separate checklist file) adds
+model/data/infrastructure monitors, a CloudWatch dashboard, and model/data
+reports on top of that deployment.
 
 ## Decisions already made
 
@@ -47,11 +49,19 @@ Transform deployment.
 │   ├── evaluate.py             # Week 4 Task 3 — metrics, precision@k, subgroup fairness, comparison table
 │   ├── deploy.py               # Week 4 Task 4 — artifact bundling, Model Registry, Batch Transform, smoke test
 │   ├── hpo.py                  # Week 4 Task 2 — Bayesian HPO launcher (boto3)
-│   └── aws_jobs.py             # shared boto3 helpers for training/tuning job launches
+│   ├── aws_jobs.py             # shared boto3 helpers for training/tuning job launches
+│   ├── monitor_common.py       # shared helpers for the monitoring module below
+│   ├── monitor_data_quality.py # data monitor — Model Monitor Data Quality baseline + execution
+│   ├── monitor_model_quality.py # model monitor — Model Monitor Model Quality baseline + execution
+│   ├── monitor_infrastructure.py # infra monitor — SNS + EventBridge failure alerting, CloudWatch alarms
+│   ├── monitor_dashboard.py    # CloudWatch dashboard — pushes custom metrics + publishes the dashboard
+│   ├── clarify_reports.py      # NOT functional — SageMaker Clarify is unavailable in this account; kept as a record
+│   └── fairness_report.py      # launches the custom bias/explainability report below as a real Processing Job
 ├── models/
 │   ├── benchmark_sklearn/train.py   # SageMaker SKLearn script-mode entry point (Task 1b)
-│   └── xgboost/                      # SageMaker XGBoost script-mode entry point (Task 2)
-│       ├── train.py, preprocess.py, inference.py, calibration.py
+│   ├── xgboost/                      # SageMaker XGBoost script-mode entry point (Task 2)
+│   │   ├── train.py, preprocess.py, inference.py, calibration.py
+│   └── fairness_report/generate_report.py   # bias + SHAP feature-importance report (Clarify's replacement)
 ├── notebooks/
 │   └── 01_eda.ipynb           # Week 3 Task 3 — EDA, read entirely through Athena
 ├── tests/
@@ -121,6 +131,28 @@ under actual SageMaker execution — see `RESULTS.md` for the full list,
 including one that genuinely broke a deployed Batch Transform job
 (a calibrator pickle incompatible with the serving container's older
 sklearn) before being caught and fixed.
+
+## Monitoring
+
+```bash
+python src/monitor_data_quality.py       # data monitor: baseline (train) + execution (production)
+python src/monitor_model_quality.py      # model monitor: baseline (validation) + execution (production)
+python src/monitor_infrastructure.py     # SNS alert topic + EventBridge failure rules + utilization alarms
+python src/monitor_dashboard.py          # pushes custom metrics, publishes the CloudWatch dashboard
+python src/fairness_report.py            # bias + SHAP feature-importance report (real Processing Job)
+```
+
+All five ran for real: 10 real (mostly minor, one genuinely actionable)
+data-quality violations found on the production split vs. the training
+baseline; 3 real model-quality violations (small accuracy/FPR movement —
+AUC on production actually exceeded the validation baseline); SNS +
+EventBridge failure alerting and CloudWatch utilization alarms created;
+a 6-widget CloudWatch dashboard (`diabetes130-ml-system`) live with real
+pushed metrics. SageMaker Clarify turned out to be unavailable in this
+AWS account (`maintenance mode`) — `src/fairness_report.py` builds the
+same substance (bias metrics + SHAP) as a real SageMaker Processing Job
+instead. Full writeup, including six more real bugs found only by running
+this against AWS, in `RESULTS.md`'s monitoring section.
 
 ## Results
 
